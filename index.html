@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Observatoire BTC order flow</title>
+<style>
+:root{--bg:#f3f5f4;--card:#fff;--ink:#14201c;--mute:#6b7a74;--line:#dde4e0;--buy:#0a8f6a;--sell:#d6453d;--amber:#b7791f}
+@media(prefers-color-scheme:dark){:root{--bg:#0e1513;--card:#151e1b;--ink:#e6efeb;--mute:#8a9a93;--line:#24302b;--buy:#2dd4a0;--sell:#ff6b5e;--amber:#e3a43b}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.4 system-ui,sans-serif;font-variant-numeric:tabular-nums;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+main{max-width:720px;margin:0 auto;padding:16px}
+.top{display:flex;justify-content:space-between;align-items:baseline;gap:12px}#price{font-size:32px;font-weight:700;letter-spacing:-.02em}
+button{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--ink);padding:8px 12px;border-radius:8px;cursor:pointer}
+.box{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px}small,.mute{color:var(--mute)}
+.g3,.g2{display:grid;gap:8px;margin-top:12px}.g3{grid-template-columns:repeat(3,1fr)}.g2{grid-template-columns:1fr 1fr}
+h2{font-size:15px;margin:18px 0 8px}ul{list-style:none;margin:6px 0 0;padding:0}li{padding:2px 0}.y{color:var(--buy)}.n{color:var(--mute)}
+.warn{background:var(--card);border:1px solid var(--amber);border-radius:10px;padding:10px;margin-top:12px}
+table{width:100%;border-collapse:collapse}td,th{padding:5px 4px;border-bottom:1px solid var(--line);text-align:right}td:first-child,th:first-child{text-align:left}
+.up{color:var(--buy)}.dn{color:var(--sell)}.lv{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px}.lv b{display:block;font-size:17px}
+</style></head><body><main>
+<div class="top"><div id="price">—</div><button id="alert">Activer les alertes</button></div>
+<div class="warn" id="warm">Calibrage en cours : le moteur apprend le rythme normal du marché (environ 10 minutes).</div>
+<div class="warn" id="nodb" hidden>Base de données non connectée : l'historique sera perdu à chaque redémarrage.</div>
+<div class="g3" id="ex"></div>
+<h2>Confluences en direct</h2>
+<div class="g2"><div class="box"><b class="up">Long</b><ul id="L"></ul></div><div class="box"><b class="dn">Short</b><ul id="S"></ul></div></div>
+<p class="mute" style="margin:6px 0 0">Entrée seulement si Niveau, Épuisement et Retournement sont réunis, avec au moins 5 conditions sur 6 et les filtres valides.</p>
+<h2>Trade simulé en cours</h2><div class="box" id="open">Aucun.</div>
+<h2>Résultats (prix exécutables, frais et slippage inclus)</h2><div class="box" id="stats"></div>
+<h2>Par confluence présente</h2><div class="box"><table id="cs"></table></div>
+<h2>Par heure (UTC)</h2><div class="box"><table id="hs"></table></div>
+<h2>Derniers trades</h2><div class="box"><table id="tr"></table></div>
+</main><script>
+const $=i=>document.getElementById(i),f=(n,d=1)=>Number(n).toLocaleString('fr-FR',{minimumFractionDigits:d,maximumFractionDigits:d});
+const hm=t=>new Date(t*1000).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+let seen=null,actx=null;
+$('alert').onclick=()=>{actx=new (window.AudioContext||window.webkitAudioContext)();if('Notification' in window)Notification.requestPermission();$('alert').textContent='Alertes actives'};
+function beep(){if(!actx)return;[880,1175].forEach((fr,i)=>{const o=actx.createOscillator(),g=actx.createGain();o.connect(g);g.connect(actx.destination);o.frequency.value=fr;g.gain.value=.2;o.start(actx.currentTime+i*.25);o.stop(actx.currentTime+i*.25+.2)})}
+const row=(n,a)=>`<tr><td>${n}</td><td>${a.n}</td><td>${a.win==null?'—':a.win+' %'}</td><td class="${a.avgR>0?'up':a.avgR<0?'dn':''}">${a.avgR==null?'—':f(a.avgR,2)}</td></tr>`;
+const head='<tr><th></th><th>Trades</th><th>Gagnés</th><th>R moyen</th></tr>';
+function render(d){
+  $('price').textContent=d.bid?f((d.bid+d.ask)/2):'—';
+  $('warm').hidden=!d.warm;$('nodb').hidden=d.db;
+  $('ex').innerHTML=Object.entries(d.ex).map(([k,v])=>`<div class="box"><small>${k} ${v.live?'●':'○'}</small><br><b class="${v.d5>=0?'up':'dn'}">${f(v.d5,2)}</b><br><small>delta 5 s (BTC)</small></div>`).join('');
+  for(const s of['L','S']){const r=d[s];$(s).innerHTML=r?d.cn.map((n,i)=>`<li class="${r.c[i]?'y':'n'}">${r.c[i]?'✓':'✗'} ${n}</li>`).join('')+`<li class="${r.ok?'y':'n'}">${r.ok?'✓':'✗'} Filtres</li>`:'<li class="n">—</li>'}
+  const o=d.open;
+  $('open').innerHTML=o?`<b class="${o.side=='L'?'up':'dn'}">${o.side=='L'?'LONG':'SHORT'}</b> · ${hm(o.t)}<div class="lv"><div><small>Entrée</small><b>${f(o.entry)}</b></div><div><small>Stop loss</small><b class="dn">${f(o.sl)}</b></div><div><small>Take profit</small><b class="up">${f(o.tp)}</b></div></div>`:'Aucun.';
+  if(seen===null)seen=o?o.t:0;else if(o&&o.t>seen){seen=o.t;beep();if('Notification' in window&&Notification.permission==='granted')new Notification((o.side=='L'?'LONG':'SHORT')+' BTC',{body:`Entrée ${o.entry} · SL ${o.sl} · TP ${o.tp}`})}
+  const a=d.stats.all;
+  $('stats').innerHTML=`<table>${head}${row('Tous les trades',a)}</table><p class="mute" style="margin:8px 0 0">Signaux écartés car les coûts mangeaient le gain : <b>${d.stats.skipped}</b>. En dessous de 100 trades, ces chiffres ne prouvent rien.</p>`;
+  $('cs').innerHTML=head+Object.entries(d.stats.c).map(([k,v])=>row(k,v)).join('');
+  $('hs').innerHTML=head+Object.entries(d.stats.h).filter(([h,v])=>v.n).map(([h,v])=>row(h+' h',v)).join('');
+  $('tr').innerHTML='<tr><th>Date</th><th>Sens</th><th>Sortie</th><th>R</th></tr>'+d.trades.map(t=>`<tr><td>${hm(t.t)}</td><td>${t.side=='L'?'Long':'Short'}</td><td>${t.why}</td><td class="${t.R>0?'up':'dn'}">${f(t.R,2)}</td></tr>`).join('');
+}
+(function c(){const w=new WebSocket((location.protocol=='https:'?'wss://':'ws://')+location.host+'/ws');w.onmessage=e=>render(JSON.parse(e.data));w.onclose=()=>setTimeout(c,2000)})();
+</script></body></html>
